@@ -86,8 +86,12 @@ def escapeascii(s):
 
 
 def randomlink():
-    return random.choice([x for x in g_db.linksById.values() if not x.isGenerative() and x.usage()])
-
+    if not g_db.linksById:
+        g_db.addLink('general', 'https://google.com', 'ogle')
+    try:
+        return random.choice([x for x in g_db.linksById.values() if not x.isGenerative() and x.usage()])
+    except ValueError:
+        return g_db.linksById.values()[0]
 
 def today():
     return datetime.date.today().toordinal()
