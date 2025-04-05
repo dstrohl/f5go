@@ -2,3 +2,4 @@
 *.pickle
 tmp/*
 venv/
+# Default ignored files

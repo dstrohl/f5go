@@ -14,21 +14,12 @@ from enum import Enum
 import cherrypy
 import jinja2
 import html
-import configparser
 
-__all__ = ["Error", 'InvalidKeyword', "deampify", "escapekeyword", "randomlink", "today", 'escapeascii', 'prettyday',
+from prog.config import config
+
+__all__ = ["deampify", "escapekeyword", "randomlink", "today", 'escapeascii', 'prettyday',
            'prettytime', 'makeList', 'canonicalUrl', 'getCurrentEditableUrl', 'getCurrentEditableUrlQuoted', 'sanitary',
-           'byClicks', 'getCurrentEditableUrlQuoted', 'getSSOUsername', 'config', 'SelectMethods']
-
-
-class Error(Exception):
-    """base error exception class for go, never raised"""
-    pass
-
-
-class InvalidKeyword(Error):
-    """Error raised when a keyword fails the sanity check"""
-    pass
+           'byClicks', 'getCurrentEditableUrlQuoted', 'getSSOUsername', 'SelectMethods']
 
 
 def deampify(s):
@@ -126,7 +117,7 @@ def byClicks(links):
 
 
 def getCurrentEditableUrl():
-    redurl = config.urlEditBase + cherrypy.request.path_info
+    redurl = config.urleditbase + cherrypy.request.path_info
     if cherrypy.request.query_string:
         redurl += "?" + cherrypy.request.query_string
 
@@ -144,10 +135,10 @@ def getSSOUsername(redirect=True):
     :param redirect:
     :return: the SSO username
     """
-    if config.urlSSO is None or config.urlSSO == 'None':
+    if config.urlsso is None or config.urlsso == 'None':
         return 'testuser'
 
-    if cherrypy.request.base != config.urlEditBase:
+    if cherrypy.request.base != config.urleditbase:
         if not redirect:
             return None
         if redirect is True:
@@ -161,10 +152,10 @@ def getSSOUsername(redirect=True):
         if redirect is True:
             redirect = cherrypy.url(qs=cherrypy.request.query_string)
 
-        raise cherrypy.HTTPRedirect(config.urlSSO + urllib.parse.quote(redirect, safe=":/"))
+        raise cherrypy.HTTPRedirect(config.urlssoO + urllib.parse.quote(redirect, safe=":/"))
 
     sso = urllib.parse.unquote(cherrypy.request.cookie["issosession"].value)
-    session = list(map(base64.b64decode, string.split(sso, "-")))
+    session = list(map(base64.b64decode, sso.split("-")))
     return session[0]
 
 class SelectMethods(Enum):
