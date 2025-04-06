@@ -107,18 +107,38 @@ class LinkRecord(BaseRecord):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.url = kwargs.get('url', None)
-        self.modify_path = kwargs.get('modify_path', None)
-        self.modify_query = kwargs.get('modify_query', None)
-        self.modify_error_url = kwargs.get('modify_error_url', None)
-        self.priority = kwargs.get('priority', 0)
 
-    def update(self):
+    def update(self, user, **kwargs):
+        self.add_edit(user)
+        self._load_data(kwargs)
 
-    def get_url(self):
+    def get_url(self, vars=None):
+        vars = vars or {}
+
+
+
+    def verify_url(self:
+
 
     def is_generative(self):
+        return self.modify_path or self.modify_query
+
+    def _get_data(self):
+        tmp_ret = super()._get_data()
+        tmp_ret['url'] = self.url
+        tmp_ret['modify_path'] = self.modify_path
+        tmp_ret['modify_query'] = self.modify_query
+        tmp_ret['modify_error_url'] = self.modify_error_url
+        tmp_ret['modify_error_text'] = self.modify_error_text
+        tmp_ret['priority'] = self.priority
+        return tmp_ret
 
 
-    def __len__(self):
+    def _load_data(self, data_obj:dict):
+        super().__init__(data_obj)
+        self.url = data_obj.get('url', None)
+        self.modify_path = data_obj.get('modify_path', None)
+        self.modify_query = data_obj.get('modify_query', None)
+        self.modify_error_url = data_obj.get('modify_error_url', None)
+        self.priority = data_obj.get('priority', 0)
 

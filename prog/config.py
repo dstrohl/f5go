@@ -1,3 +1,23 @@
+def sanitize_config(self):
+    """Validate and sanitize configuration values."""
+    for item, value in self.config_data.items():
+        item_meta = CONFIG_ITEMS.get(item)
+        if not item_meta:
+            log.warning(f"Unknown config item: {item}")
+            continue
+
+        if item_meta.val_type == 'bool' and not isinstance(value, bool):
+            log.error(f"Invalid value for {item}: expected boolean, got {type(value).__name__}. Resetting to default.")
+            self.config_data[item] = item_meta.default
+
+        elif item_meta.val_type == 'int' and not isinstance(value, int):
+            log.error(f"Invalid value for {item}: expected integer, got {type(value).__name__}. Resetting to default.")
+            self.config_data[item] = item_meta.default
+
+        elif item_meta.val_type == 'str' and not isinstance(value, str):
+            log.error(f"Invalid value for {item}: expected string, got {type(value).__name__}. Resetting to default.")
+            self.config_data[item] = item_meta.default
+
 
 import configparser
 import sys, os
@@ -28,14 +48,16 @@ DEFAULT_CONFIG = dict(
         log_file = 'go.log',
         log_level = 'info',
         log_file_format = '%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+        default_replacement_error_string = '',
+        default_replacement_error_handling = 'ERROR',
     ),
-    NETWORK = dict(        
+    NETWORK = dict(
         hostname = "localhost",
         port = 8080,
         sslenabled = False,
         sslcertificate = '',
         sslprivatekey = '',
-    ),   
+    ),
     USERS = dict(
         urlsso = None,
         unknownuser = 'unknown',
@@ -127,6 +149,8 @@ class Config():
     automigrate: bool
     max_last_x: int
     max_recent_days: int
+    default_replacement_error_string: str
+    default_replacement_error_handling: str
 
     insecure_system = False
     allow_insecure = False
@@ -217,8 +241,17 @@ class Config():
         self.config_loaded = True
         log.info('Config Loaded!')
 
+    def check_config(self):
+        self.sanitize_config()
 
     def check_config(self):
+        self.sanitize_config()
+
+        for k, v in self.kwargs_overrides.items():
+            self.config_data[k] = v
+
+    def check_config(self):
+        self.sanitize_config()
 
         for k, v in self.kwargs_overrides.items():
             self.config_data[k] = v
