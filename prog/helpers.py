@@ -19,7 +19,7 @@ from prog.config import config
 
 __all__ = ["deampify", "escapekeyword", "randomlink", "today", 'escapeascii', 'prettyday',
            'prettytime', 'makeList', 'canonicalUrl', 'getCurrentEditableUrl', 'getCurrentEditableUrlQuoted', 'sanitary',
-           'byClicks', 'getCurrentEditableUrlQuoted', 'getSSOUsername', 'SelectMethods']
+           'byClicks', 'getCurrentEditableUrlQuoted', 'getSSOUsername']
 
 
 def deampify(s):
@@ -135,7 +135,7 @@ def getSSOUsername(redirect=True):
     :param redirect:
     :return: the SSO username
     """
-    if config.urlsso is None or config.urlsso == 'None':
+    if config.url_sso is None or config.url_sso == 'None':
         return 'testuser'
 
     if cherrypy.request.base != config.urleditbase:
@@ -157,9 +157,3 @@ def getSSOUsername(redirect=True):
     sso = urllib.parse.unquote(cherrypy.request.cookie["issosession"].value)
     session = list(map(base64.b64decode, sso.split("-")))
     return session[0]
-
-class SelectMethods(Enum):
-    PRIORITY = 'By Priority'
-    RANDOM = 'Random selection'
-    SELECT = 'Select from list'
-    LAST_EDIT = 'Last Edited'

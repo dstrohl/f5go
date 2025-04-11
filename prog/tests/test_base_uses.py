@@ -45,21 +45,23 @@ class TestUses(unittest.TestCase):
             t += 1
             self.assertEqual(int(u), c)
             self.assertEqual(len(u), c2)
+            self.assertEqual(u.lifetime, i*2)
 
     def test_load_get_data(self):
         t = datetime.date.today().toordinal()
         t -= 9
         u = RecentUses()
-        td = {}
+        td = {'data': {}, 'lifetime': 300}
         for i in range(1, 11):
-            td[t] = 2
+            td['data'][t] = 2
             t += 1
         u.load_data(td)
         self.assertEqual(int(u), 14)
         self.assertEqual(len(u), 7)
+        self.assertEqual(u.lifetime, 300)
 
         tout = u.get_data()
-        self.assertEqual(len(tout), 7)
+        self.assertEqual(len(tout['data']), 7)
 
 
 class TestEdits(unittest.TestCase):

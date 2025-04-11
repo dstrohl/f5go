@@ -1,80 +1,46 @@
+from typing import Any
 
 from prog.helpers import today
 from prog.config import config, log
 from collections import deque
 from copy import copy
-"""
-class _Use():
-    def __init__(self, t, count=None):
-        self.date = t
-        self.expires = self.date + config.max_recent_days
-        self.count = count or 1
-
-    def add(self, inc_by=1):
-        self.count += inc_by
-
-    def exp(self, t=None):
-        t = t or today()
-        return self.expires > t
-
-    def __int__(self):
-        return self.count
-
-    def __bool__(self):
-        return self.exp()
-"""
+from prog.constants import *
 
 class BaseGetLoadObj():
 
-    default_get_obj = dict()
-
-    def __init__(self, load_data=None, **kwargs):
-        if load_data:
-            self.load_data(load_data)
+    def __init__(self, load_data=None, load_type=LOAD_TYPE_NEW, **kwargs):
+        if kwargs:
+            self.load_data(kwargs, load_type=load_type)
 
     def get_data(self):
         log.debug('getting data from %r', self)
         tmp_ret = self._get_data()
         log.debug('    data: %r', tmp_ret)
-        if tmp_ret is None:
-            return copy(self.default_get_obj)
         return tmp_ret
 
     def _get_data(self):
-        return None
+        raise NotImplementedError()
 
-    def load_data(self, data_obj):
-        log.debug('loading data into class %s', self.__class__.__name__)
+    def load_data(self, data_obj, load_type=LOAD_TYPE_UPDATE):
+        log.debug('loading data %s into class %s', load_type, self.__class__.__name__)
         log.debug('    data: %r', data_obj)
-        self._load_data(data_obj)
+        self._load_data(data_obj, load_type=load_type)
         return
 
-    def _load_data(self, data_obj):
-        pass
+    def _load_data(self, data_obj:dict, load_type=LOAD_TYPE_UPDATE):
+        raise NotImplementedError()
+
 
 
 class RecentUses(BaseGetLoadObj):
-    """
-    ru = RecentUses()
-    ru.add()
-
-    check list for overdue entries and remove
-    add item to list
-    recalc list.
-
-    """
 
     last_cleaned_date = None
-    default_get_obj = list()
+    lifetime = 0
 
     def __init__(self, load_data=None, **kwargs):
-        super(RecentUses, self).__init__(load_data=load_data, **kwargs)
-        if load_data:
-            return
         self.total = 0
         self.uses = {}
-
-    # TODO: fix cleanup to work better... probably change to straight dict and store last cleaned day.
+        super(RecentUses, self).__init__(load_data=load_data, **kwargs)
 
     def add(self, t=None):
         t = t or today()
@@ -92,14 +58,28 @@ class RecentUses(BaseGetLoadObj):
         else:
             self.uses[t] = 1
         self.total += 1
+        self.lifetime += 1
+
+    def clear(self):
+        self.total = 0
+        self.uses.clear()
+        self.lifetime = 0
+        self.last_cleaned_date = None
 
     def __int__(self):
         return self.total
 
     def _get_data(self):
-        return self.uses.copy()
+        tmp_ret = dict(
+            data=self.uses.copy(),
+            lifetime=self.lifetime,
+        )
+        return tmp_ret
 
-    def _load_data(self, data_obj:dict, t=None):
+    def _load_data(self, data_obj:dict, load_type=LOAD_TYPE_NEW, t=None):
+        # super(RecentUses, self)._load_data(data_obj, load_type=load_type)
+        self.lifetime = data_obj.get('lifetime', self.lifetime)
+        data_obj = data_obj.get('data', {})
         self.uses.clear()
         t = t or today()
         e = t - config.max_recent_days + 1
@@ -114,12 +94,6 @@ class RecentUses(BaseGetLoadObj):
     def __len__(self):
         return len(self.uses)
 
-"""
-class _Edit():
-    def __init__(self, user, date=None):
-        self.user = user
-        self.date = date or today()
-"""
 
 class LastXEdits(BaseGetLoadObj):
     """
@@ -155,14 +129,21 @@ class LastXEdits(BaseGetLoadObj):
         data_obj = list(self.queue)
         return data_obj
 
-    def _load_data(self, data_obj: list):
+    def _load_data(self, data_obj: list, load_type=LOAD_TYPE_NEW, t=None):
+        # super(LastXEdits, self)._load_data(data_obj, load_type=load_type)
         data_obj.sort(key=lambda x: x[1], reverse=False)
         self.queue.extend(data_obj)
         self.last_edit_date = data_obj[-1][1]
         self.last_edit_user = data_obj[-1][0]
 
+    def clear(self):
+        self._queue.clear()
+        self.last_edit_date = 0
+        self.last_edit_user = ''
+
     def __len__(self):
         return len(self.queue)
+
 
 class BaseRecord(BaseGetLoadObj):
     """
@@ -180,42 +161,47 @@ class BaseRecord(BaseGetLoadObj):
     created_date = None
     rec_id = None
 
-    def __init__(self, load_data=None, **kwargs):
-        super(BaseRecord, self).__init__(load_data=load_data, **kwargs)
-        if load_data:
-            return
-        self.created_date = today()
+    def __init__(self, load_data=None, load_type=LOAD_TYPE_NEW, **kwargs):
+        super(BaseRecord, self).__init__(load_data=load_data, load_type=load_type, **kwargs)
 
+    def update(self, user=None, load_type=LOAD_TYPE_UPDATE, **kwargs):
+        self.load_data(kwargs, load_type=LOAD_TYPE_UPDATE)
+        if load_type == LOAD_TYPE_UPDATE and user is not None:
+            self.add_edit(user=user)
 
-    def _load_data(self, data_obj:dict=None):
+    def _load_data(self, data_obj:dict=None, load_type=LOAD_TYPE_UPDATE):
         """
         create bew object from data file
         """
-        if data_obj is None:
+        if not data_obj:
             return
-        self.active = data_obj.get('active', True)
-        self.start_date = data_obj.get('start_date', None)
-        self.end_date = data_obj.get('end_date', None)
-        self.created_date = data_obj.get('created_date', None)
-        self.last_x_edits.load_data(data_obj['last_x_edits'])
-        self.recent_uses.load_data(data_obj['recent_uses'])
+        self.active = data_obj.get('active', self.active)
+        self.start_date = data_obj.get('start_date', self.start_date)
+        self.end_date = data_obj.get('end_date', self.end_date)
+
+        if load_type==LOAD_TYPE_NEW:
+            self.created_date = today()
+        elif load_type==LOAD_TYPE_IMPORT:
+            self.created_date = data_obj.get('created_date')
+            self.last_x_edits.load_data(data_obj['last_x_edits'])
+            self.recent_uses.load_data(data_obj['recent_uses'])
 
     def _get_data(self):
         """
         generate dict for saving.
         """
-        data_obj = {}
+        data_obj = {'active': self.active,
+                    'start_date': self.start_date,
+                    'end_date': self.end_date,
+                    'created_date': self.created_date,
+                    'last_x_edits': self.last_x_edits.get_data(),
+                    'recent_uses': self.recent_uses.get_data()}
 
-        data_obj['active'] = self.active
-        data_obj['start_date'] = self.start_date
-        data_obj['end_date'] = self.end_date
-        data_obj['created_date'] = self.created_date
-
-        data_obj['last_x_edits'] = self.last_x_edits.get_data()
-        data_obj['recent_uses'] = self.recent_uses.get_data()
         return data_obj
 
     def add_edit(self, user):
+        if not user:
+            user = config.unknown_user
         self.last_x_edits.add(user)
 
     def add_use(self):

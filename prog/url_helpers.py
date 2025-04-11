@@ -1,160 +1,162 @@
 from urllib import parse
-import re
-from exceptions import TemplateError, MissingKeys
+from prog.exceptions import TemplateError
 from prog.config import log
 
+__all__ = ['UrlObj', 'check_braces', 'make_list', 'make_qs_dict', 'merge_queries']
+
 """ looking for {}, {n} {xxx} """
-PRE_URL_REGEX = re.compile(r'.*(\{\w*\}).*')
+# PRE_URL_REGEX = re.compile(r'.*(\{\w*\}).*')
+
 
 class UrlObj(object):
     def __init__(self, url_in):
+        self.next_counter = 0
         self.used_path = []
-        self.remaining_path = []
-
+        self.pending_path = None
         self.initial_url_str = url_in
         self.url = parse.urlparse(url_in)
-        self.path_list = self.url.path.split('/')
+        self.base = self.url.netloc + ':' + self.url.hostname
+        tmp_path = self.url.path.strip('/').strip()
+        if tmp_path:
+            self._remaining_path = tmp_path.split('/')
+        else:
+            self._remaining_path = []
         self.query = self.url.query
 
-    def get_next_path(self):
-        if not self.remaining_path:
-            return None
-        else:
-            tmp_return = self.remaining_path.pop(0)
-            self.used_path.append(tmp_return)
-            return tmp_return
+        log.debug('Created URL Object: %r' % self)
 
-
-class UrlTemplate(object):
-    replacement_str = ''
-    error_handling = 'ERROR'
-    template_str = ''
-    positional = None
-    named = None
-    copy_all = False
-    max_pos = 0
-    generative = False
-
-    def __init__(self, template, vars=None, var_check=True, replacement_str='', error_handling='ERROR'):
-        self.template_str = template
-        self.positional = []
-        self.named = []
-        self.update(template, error_handling, vars, var_check, replacement_str)
-
-    def update(self, template=None, error_handling='ERROR', vars=None, var_check=True, replacement_str=''):
-        self.error_handling = error_handling.upper()
-        self.replacement_str = replacement_str
-
-        self.positional.clear()
-        self.named.clear()
-        self.copy_all = False
-        self.generative = False
-
-        in_open = False
-        in_double_open = False
-        last_open_pos = 0
-
-        for n, c in enumerate(template):
-            if c == '{':
-                if in_double_open:
-                    continue
-                if in_open:
-                    if n + 1 == last_open_pos:
-                        in_double_open = True
-                        last_open_pos = 0
-                        continue
-                    raise TemplateError('Missing closing brace at position: {}, in: {}'.format(n+1, template))
-                in_open = True
-                last_open_pos = n
-                continue
-            if c == '}':
-                if in_double_open:
-                    in_double_open = False
-                    continue
-                if not in_open:
-                    raise TemplateError('Missing opening brace before position: {}, in: {}'.format(n+1, template))
-                in_open = False
-                last_open_pos = 0
-
-        tmp_match_list = PRE_URL_REGEX.findall(template)
-        if tmp_match_list:
-            self.generative = True
-            for tmp_match in tmp_match_list:
-                tmp_match = tmp_match[1:-1]
-                if len(tmp_match) > 1 and tmp_match[1:2] == '{{':
-                    continue
-                if len(tmp_match) > 3 and tmp_match[-2:-1] == '}}':
-                    continue
-                if tmp_match == '':
-                    if self.positional or self.named:
-                        raise TemplateError('Cannot have any positional or named variable with save all ("{}")')
-                    self.copy_all = True
-                    continue
-                if tmp_match.isdigit():
-                    if self.copy_all:
-                        raise TemplateError('Cannot have positional number after save all')
-                    num = int(tmp_match) - 1
-                    if num < 0:
-                        raise TemplateError('Positional number cannot be less than 1')
-                    self.positional.append(num)
-                    self.max_pos = max(self.max_pos, num)
-                else:
-                    if self.copy_all:
-                        raise TemplateError('Cannot have positional number after save all')
-                    if var_check and tmp_match[1:-1] not in vars:
-                        raise MissingKeys('Missing Variable in variable setup: '.format(tmp_match[1:-1]))
-                    self.named.append(tmp_match[1:-1])
-            if self.positional:
-                self.positional.sort(reverse=True)
-
-    def get_url(self, url_obj:UrlObj, vars:dict=None, cookies:dict=None):
-        if self.generative:
-            positionals = []
-            named = {}
-
-            if self.copy_all:
-                tmp_rep = '/'.join(url_obj.remaining_path)
-                if url_obj.query:
-                    tmp_rep = '{}?{}'.format(tmp_rep, url_obj.query)
-                positionals.append(tmp_rep)
+    @property
+    def next(self):
+        self.next_counter += 1
+        log.debug('getting next url path segment (%s)' % self.next_counter)
+        if not self._remaining_path:
+            if self.pending_path:
+                log.debug('returning pending path: %s' % self.pending_path)
+                tmp_ret = self.pending_path
+                self.pending_path = ''
+                return tmp_ret
             else:
+                log.debug('no remaining path, returning ""')
+                return ''
 
-                for k in self.named:
-                    if k in ['p', 'q']:
-                        continue
-                    if k in cookies:
-                        named[k] = cookies[str(k)]
-                    elif k in vars:
-                        named[k] = vars[str(k)]
-                    else:
-                        if self.error_handling == 'REPLACE':
-                            named[k] = self.replacement_str
-                        else:
-                            raise MissingKeys('Missing Variable in variable setup: '.format(k))
-                if self.positional:
-                    if self.max_pos + 1 > len(url_obj.remaining_path):
-                        if self.error_handling == 'ERROR':
-                            raise TemplateError('Not enough path elements to fill in positional variables')
-                    for k in range(self.max_pos + 1):
-                        if k in self.positional:
-                            if k >= len(url_obj.remaining_path):
-                                positionals.append(self.replacement_str)
-                            else:
-                                positionals.append(url_obj.remaining_path.pop(k))
-                        else:
-                            positionals.append('')
-
-                if 'p' in self.named:
-                    named['p'] = '/'.join(url_obj.remaining_path)
-                if 'q' in self.named:
-                    named['q'] = url_obj.query
-
-            new_url = self.template_str.format(*positionals, **named)
+        """
+        if self.pending_path:
         else:
-            new_url = self.template_str
+            self.pending_path = self._remaining_path[0]
+        """
+        if not self.pending_path:
+            self.pending_path = self._remaining_path[0]
+            log.debug('no current pending path (first path), returning first segment: %s'% self.pending_path)
+            log.debug('remaining segments: %r' % self._remaining_path)
+            return self.pending_path
 
-        new_url = parse.urlsplit(new_url)
+        self.used_path.append(self._remaining_path.pop(0))
+        if self._remaining_path:
+            log.debug('moving next segment to pending segment: %s' % self._remaining_path[0])
+            self.pending_path = self._remaining_path[0]
+        else:
+            log.debug('no next segment')
+            self.pending_path = ''
+        log.debug('returning segment: %s' % self.pending_path)
+        return self.pending_path
 
-        # need to do the following
+    @property
+    def remaining_path(self):
+        if not self.pending_path:
+            return self._remaining_path
+        if self._remaining_path:
+            return self._remaining_path[1:]
+        else:
+            return []
+
+    def __len__(self):
+        return len(self.remaining_path)
+
+    def __str__(self):
+        return self.initial_url_str
+
+    def __iter__(self):
+        yield self.next
+
+    def __repr__(self):
+        """  http://go.test.com [l1 / l2] l3 [l4 / l5]o=bar  """
+        tmp_ret = '{} [{}] {} [{}]'.format(self.base, ' / '.join(self.used_path), self.pending_path, ' / '.join(self.remaining_path))
+        if self.query:
+            tmp_ret += " ?" + self.query
+        tmp_ret += ' ({})'.format(str(self.next_counter))
+        return tmp_ret
+
+def check_braces(template):
+    in_open = False
+    in_double_open = False
+    last_open_pos = 0
+
+    for n, c in enumerate(template):
+        if c == '{':
+            if in_double_open:
+                continue
+            if in_open:
+                if n - 1 == last_open_pos:
+                    in_double_open = True
+                    last_open_pos = 0
+                    continue
+                raise TemplateError('Missing closing brace at position: {}, in: {}'.format(n + 1, template))
+            in_open = True
+            last_open_pos = n
+            continue
+        if c == '}':
+            if in_double_open:
+                in_double_open = False
+                continue
+            if not in_open:
+                raise TemplateError('Missing opening brace before position: {}, in: {}'.format(n + 1, template))
+            in_open = False
+            last_open_pos = 0
+    if in_open:
+        raise TemplateError('Missing closing brace before position in: {}'.format(template))
+
+def make_qs_dict(info):
+    if not info:
+        return {}
+    if isinstance(info, dict):
+        for k, v in info.items():
+            info[k] = make_list(v)
+        return info
+    if isinstance(info, str):
+        if '=' in info and '?' not in info:
+            info = '?' + info
+        if '?' in info:
+            info = parse.urlsplit(info)
+        else:
+            return {}
+    if isinstance(info, (parse.ParseResult, parse.SplitResult, UrlObj)):
+        return parse.parse_qs(info.query)
+    else:
+        raise AttributeError('Unknown information passed to make QS:  {}'.format(repr(info)))
+
+def make_list(data, merge_data=None, unique=False):
+    if not data:
+        data = []
+    if not isinstance(data, (list, tuple)):
+        if not isinstance(data, str):
+            data = list(data)
+        else:
+            data = [data]
+    if merge_data:
+        merge_data = make_list(merge_data, unique=unique)
+        data.extend(merge_data)
+    if unique:
+        data = list(set(data))
+    return data
+
+def merge_queries(passed_info, template_info=None, as_str=False):
+    passed_info = make_qs_dict(passed_info)
+    template_info = make_qs_dict(template_info)
+    passed_info = passed_info.copy()
+    template_info.update(passed_info)
+
+    if as_str:
+        return parse.urlencode(template_info, doseq=True)
+    return template_info
 
 
